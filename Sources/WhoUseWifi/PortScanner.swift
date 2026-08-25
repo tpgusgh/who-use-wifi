@@ -17,7 +17,7 @@ actor PortScanner {
     func scan(
         hosts: [String],
         ports: [UInt16] = CommonPorts.list,
-        maxConcurrent: Int = 64,
+        maxConcurrent: Int = 160,
         onProgress: @escaping @Sendable (Progress) -> Void
     ) async -> [HostResult] {
         let pairs = hosts.flatMap { host in ports.map { (host, $0) } }
@@ -68,7 +68,7 @@ actor PortScanner {
         return hostResults.sorted { ipLess($0.id, $1.id) }
     }
 
-    private static func isPortOpen(host: String, port: UInt16, timeout: TimeInterval = 0.8) async -> Bool {
+    private static func isPortOpen(host: String, port: UInt16, timeout: TimeInterval = 0.3) async -> Bool {
         await withCheckedContinuation { continuation in
             let connection = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
             var didResume = false
