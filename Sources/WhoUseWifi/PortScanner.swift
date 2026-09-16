@@ -18,9 +18,11 @@ actor PortScanner {
         hosts: [String],
         ports: [UInt16] = CommonPorts.list,
         maxConcurrent: Int = 160,
+        localIP: String? = nil,
         onProgress: @escaping @Sendable (Progress) -> Void
     ) async -> [HostResult] {
-        let pairs = hosts.flatMap { host in ports.map { (host, $0) } }
+        let remoteHosts = hosts.filter { $0 != localIP }
+        let pairs = remoteHosts.flatMap { host in ports.map { (host, $0) } }
         var openByHost: [String: [PortResult]] = [:]
         var completed = 0
         let total = pairs.count
@@ -65,7 +67,31 @@ actor PortScanner {
             }
         }
 
+        if let localIP {
+            let localResult = await scanLocalMachine(ip: localIP)
+            hostResults.append(localResult)
+        }
+
         return hostResults.sorted { ipLess($0.id, $1.id) }
+    }
+
+    private func scanLocalMachine(ip: String) async -> HostResult {
+        let listening = LocalPortInspector.listListeningPorts()
+
+        var enriched: [PortResult] = []
+        await withTaskGroup(of: PortResult.self) { group in
+            for entry in listening {
+                group.addTask {
+                    let (banner, title) = await BannerFetcher.fetch(host: "127.0.0.1", port: UInt16(entry.port))
+                    return PortResult(id: entry.port, banner: banner, title: title, pid: entry.pid, processName: entry.processName)
+                }
+            }
+            for await result in group {
+                enriched.append(result)
+            }
+        }
+
+        return HostResult(id: ip, ports: enriched.sorted { $0.id < $1.id }, isLocalMachine: true)
     }
 
     private static func isPortOpen(host: String, port: UInt16, timeout: TimeInterval = 0.3) async -> Bool {

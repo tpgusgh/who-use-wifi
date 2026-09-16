@@ -47,14 +47,26 @@ struct PortResult: Identifiable {
     let id: Int                // port number
     var banner: String?        // Server 헤더
     var title: String?         // <title>
+    var pid: Int32?            // 로컬 머신 프로세스일 때만
+    var processName: String?   // 로컬 머신 프로세스일 때만
 }
 ```
+
+## 내 맥(로컬 머신) 처리
+
+- 원격 호스트는 고정 포트 목록만 TCP 커넥트로 훑지만, 내 맥 자신은 `lsof -iTCP
+  -sTCP:LISTEN -P -n` 로 실제 리스닝 중인 포트 전부(개발 서버가 흔히 쓰는
+  임의 포트 포함)와 프로세스명/PID를 정확히 가져옴
+- 이 호스트만 UI에서 "이 기기"로 표시하고, 포트별로 "종료" 버튼 제공
+  (확인창 → `kill(pid, SIGTERM)`). 원격 서버는 종료 불가(같은 컴퓨터가
+  아니므로 범위 밖)
 
 ## UI
 
 - 상단: "스캔" 버튼 + 진행 상태(몇 호스트째 / 전체)
 - 본문: IP별로 접었다 펼 수 있는 그룹 리스트
   - 각 포트 줄: 포트 번호 + 배너/타이틀 텍스트 + "브라우저로 열기" 버튼
+  - 내 기기 포트 줄은 프로세스명/PID 표시 + "종료" 버튼(확인 후 SIGTERM)
 
 ## 권한 / 배포
 
