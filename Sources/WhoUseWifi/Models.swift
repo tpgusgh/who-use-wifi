@@ -12,4 +12,5 @@ struct HostResult: Identifiable, Hashable, Sendable {
     let id: String
     var ports: [PortResult]
     var isLocalMachine: Bool = false
+    var hostname: String? = nil
 }

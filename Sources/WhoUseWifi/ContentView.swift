@@ -5,7 +5,12 @@ struct ContentView: View {
     @State private var results: [HostResult] = []
     @State private var isScanning = false
     @State private var progress = PortScanner.Progress(completed: 0, total: 0)
+    @State private var autoRefreshEnabled = false
+    @State private var refreshTask: Task<Void, Never>?
+    @State private var knownKeys: Set<String> = []
+    @State private var hasScannedOnce = false
     private let scanner = PortScanner()
+    private let autoRefreshInterval: Duration = .seconds(30)
 
     private var totalOpenPorts: Int {
         results.reduce(0) { $0 + $1.ports.count }
@@ -19,6 +24,17 @@ struct ContentView: View {
                 }
                 .disabled(isScanning)
                 .buttonStyle(.borderedProminent)
+
+                Toggle("자동 새로고침(30초)", isOn: $autoRefreshEnabled)
+                    .toggleStyle(.switch)
+                    .onChange(of: autoRefreshEnabled) { enabled in
+                        if enabled {
+                            startAutoRefresh()
+                        } else {
+                            refreshTask?.cancel()
+                            refreshTask = nil
+                        }
+                    }
 
                 if isScanning {
                     ProgressView(value: Double(progress.completed), total: Double(max(progress.total, 1)))
@@ -72,23 +88,49 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 520, minHeight: 460)
+        .task {
+            NotificationManager.requestAuthorization()
+        }
+        .onDisappear {
+            refreshTask?.cancel()
+        }
     }
 
     private func startScan() {
-        isScanning = true
-        results = []
-        progress = PortScanner.Progress(completed: 0, total: 0)
-        Task {
-            let hosts = NetworkInfo.homeSubnetHosts()
-            let localIP = NetworkInfo.primaryIPv4Address()
-            let scanned = await scanner.scan(hosts: hosts, localIP: localIP) { p in
-                Task { @MainActor in progress = p }
-            }
-            await MainActor.run {
-                results = scanned
-                isScanning = false
+        Task { await doScan() }
+    }
+
+    private func startAutoRefresh() {
+        refreshTask?.cancel()
+        refreshTask = Task {
+            while !Task.isCancelled {
+                await doScan()
+                try? await Task.sleep(for: autoRefreshInterval)
             }
         }
+    }
+
+    @MainActor
+    private func doScan() async {
+        isScanning = true
+        progress = PortScanner.Progress(completed: 0, total: 0)
+
+        let hosts = NetworkInfo.homeSubnetHosts()
+        let localIP = NetworkInfo.primaryIPv4Address()
+        let scanned = await scanner.scan(hosts: hosts, localIP: localIP) { p in
+            Task { @MainActor in progress = p }
+        }
+
+        let currentKeys = Set(scanned.flatMap { host in host.ports.map { "\(host.hostname ?? host.id):\($0.id)" } })
+        if hasScannedOnce {
+            let newKeys = currentKeys.subtracting(knownKeys).sorted()
+            NotificationManager.notifyNewPorts(newKeys)
+        }
+        knownKeys = currentKeys
+        hasScannedOnce = true
+
+        results = scanned
+        isScanning = false
     }
 
     private func removePort(hostID: String, portID: Int) {
@@ -100,13 +142,27 @@ struct ContentView: View {
 private struct HostHeader: View {
     let host: HostResult
 
+    private var displayName: String {
+        let name = host.hostname ?? host.id
+        return host.isLocalMachine ? "\(name) (이 기기)" : name
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: host.isLocalMachine ? "desktopcomputer" : "server.rack")
                 .foregroundStyle(.secondary)
-            Text(host.isLocalMachine ? "\(host.id) (이 기기)" : host.id)
-                .font(.headline)
-                .fontDesign(.monospaced)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text(displayName)
+                    .font(.headline)
+                if host.hostname != nil {
+                    Text(host.id)
+                        .font(.caption2)
+                        .fontDesign(.monospaced)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Text("포트 \(host.ports.count)개")
                 .font(.caption)
                 .foregroundStyle(.secondary)

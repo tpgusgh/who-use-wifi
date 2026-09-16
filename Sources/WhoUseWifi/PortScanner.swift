@@ -59,7 +59,8 @@ actor PortScanner {
                         let (banner, title) = await BannerFetcher.fetch(host: host, port: UInt16(p.id))
                         enriched.append(PortResult(id: p.id, banner: banner, title: title))
                     }
-                    return HostResult(id: host, ports: enriched.sorted { $0.id < $1.id })
+                    let hostname = await HostnameResolver.resolve(ip: host)
+                    return HostResult(id: host, ports: enriched.sorted { $0.id < $1.id }, hostname: hostname)
                 }
             }
             for await result in group {
@@ -91,7 +92,12 @@ actor PortScanner {
             }
         }
 
-        return HostResult(id: ip, ports: enriched.sorted { $0.id < $1.id }, isLocalMachine: true)
+        return HostResult(
+            id: ip,
+            ports: enriched.sorted { $0.id < $1.id },
+            isLocalMachine: true,
+            hostname: ProcessInfo.processInfo.hostName
+        )
     }
 
     private static func isPortOpen(host: String, port: UInt16, timeout: TimeInterval = 0.3) async -> Bool {
